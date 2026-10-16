@@ -1,0 +1,139 @@
+version: "2"
+run:
+  timeout: 5m
+  issues-exit-code: 2
+  tests: false
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    # correctness / bug finders
+    - asasalint
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - contextcheck
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - gocheckcompilerdirectives
+    - gosec
+    - govet
+    - ineffassign
+    - loggercheck
+    - makezero
+    - mirror
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - recvcheck
+    - reassign
+    - staticcheck
+    - unused
+    - usestdlibvars
+    - wastedassign
+    # code quality / duplication / complexity
+    - decorder
+    - dogsled
+    - dupl
+    - funlen
+    - gocognit
+    # goconst disabled: the codebase uses logrus.WithFields heavily, so map
+    # keys like "id", "name", "img", "pull" legitimately repeat across files.
+    # goconst cannot distinguish map keys from real magic constants and
+    # produces 50+ false positives. Real repeated business strings are caught
+    # via human review.
+    - gocritic
+    - gocyclo
+    - goprintffuncname
+    - grouper
+    - importas
+    - interfacebloat
+    - maintidx
+    - misspell
+    - mnd
+    - nakedret
+    - nolintlint
+    - predeclared
+    - promlinter
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+    # style / non-ASCII identifiers
+    - asciicheck
+    # modernization (Go 1.22+)
+    - copyloopvar
+    - intrange
+    - modernize
+    - perfsprint
+    # tests
+    - testableexamples
+    - testifylint
+    - thelper
+    - tparallel
+    - usetesting
+  settings:
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 100
+    misspell:
+      locale: US
+      ignore-rules:
+        - cancelled
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - rangeValCopy
+        - unnamedResult
+        - whyNoLint
+        - wrapperFunc
+    funlen:
+      lines: 105
+      statements: 50
+    testifylint:
+      enable-all: true
+    perfsprint:
+      strconcat: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+    paths:
+      - mocks
+    rules:
+      - path: _test\.go
+        linters:
+          - funlen
+          - bodyclose
+          - gosec
+          - dupl
+          - gocognit
+          - gocyclo
+          - maintidx
+          - mnd
+          - unparam
+          - wrapcheck
+          - contextcheck
+          - noctx
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports

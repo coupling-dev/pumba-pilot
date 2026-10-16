@@ -1,0 +1,344 @@
+# Deployment Guide
+
+This guide covers how to run Pumba in Docker containers, on Kubernetes clusters, and on OpenShift. For general usage, see the [User Guide](guide.md).
+
+## Running as a Docker Container
+
+Pumba is distributed as a minimal `scratch` Docker image containing only the `pumba` binary with `ENTRYPOINT` set to the `pumba` command.
+
+### GHCR (Recommended)
+
+```bash
+docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock \
+    ghcr.io/alexei-led/pumba --interval=10s --random kill --signal=SIGKILL "re2:^test"
+```
+
+### Docker Hub (Deprecated)
+
+```bash
+docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock \
+    gaiaadm/pumba --interval=10s --random kill --signal=SIGKILL "re2:^test"
+```
+
+### Docker Socket Access
+
+Pumba needs access to the Docker daemon socket to manage containers:
+
+- **Linux**: Mount `/var/run/docker.sock` as shown above
+- **Windows/macOS**: Use the `--host` flag to specify the Docker daemon address, since there is no Unix socket to mount
+
+### Example: Kill Containers by Pattern
+
+```bash
+# Start some test containers
+for i in $(seq 1 10); do docker run -d --name test_$i --rm alpine tail -f /dev/null; done
+
+# Kill matching containers every 10 seconds
+docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock \
+    ghcr.io/alexei-led/pumba \
+    --interval=10s --random --log-level=info \
+    kill --signal=SIGKILL "re2:^test"
+```
+
+## Running on Kubernetes
+
+Pumba works well with Kubernetes DaemonSets, which automatically deploy Pumba to selected nodes.
+
+### Deploying with DaemonSet
+
+```sh
+kubectl create -f deploy/pumba_kube.yml
+```
+
+The [deploy/](../deploy/) directory contains ready-to-use manifests:
+
+- `pumba_kube.yml` — DaemonSet with pause and netem delay examples
+- `pumba_kube_stress.yml` — DaemonSet for stress testing
+- `pumba_openshift.yml` — OpenShift DaemonSet
+
+### Node Selection
+
+Use `nodeSelector` or `nodeAffinity` to target specific nodes. See [Assigning Pods to Nodes](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/).
+
+```yaml
+spec:
+  template:
+    spec:
+      # EKS node group
+      nodeSelector:
+        alpha.eksctl.io/nodegroup-name: my-node-group
+      # Or GKE node pool
+      # nodeSelector:
+      #   cloud.google.com/gke-nodepool: node-pool
+```
+
+### Container Label Filtering
+
+Kubernetes automatically assigns labels to Docker containers. Use Pumba's `--label` flag to target specific Pods and Namespaces:
+
+```yaml
+# Available K8s labels for filtering
+"io.kubernetes.container.name": "test-container"
+"io.kubernetes.pod.name": "test-pod"
+"io.kubernetes.pod.namespace": "test-namespace"
+```
+
+### Multiple Pumba Commands
+
+Run multiple chaos commands in the same DaemonSet by defining multiple containers:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: pumba
+spec:
+  selector:
+    matchLabels:
+      app: pumba
+  template:
+    metadata:
+      labels:
+        app: pumba
+        com.gaiaadm.pumba: "true" # prevent pumba from killing itself
+      name: pumba
+    spec:
+      containers:
+        # Pause containers in a specific Pod
+        - image: ghcr.io/alexei-led/pumba
+          name: pumba-pause
+          args:
+            - --random
+            - --log-level
+            - info
+            - --label
+            - io.kubernetes.pod.name=test-1
+            - --interval
+            - 20s
+            - pause
+            - --duration
+            - 10s
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 5M
+            limits:
+              cpu: 100m
+              memory: 20M
+          volumeMounts:
+            - name: dockersocket
+              mountPath: /var/run/docker.sock
+        # Add network delay to a different Pod
+        - image: ghcr.io/alexei-led/pumba
+          name: pumba-delay
+          args:
+            - --random
+            - --log-level
+            - info
+            - --label
+            - io.kubernetes.pod.name=test-2
+            - --interval
+            - 30s
+            - netem
+            - --duration
+            - 20s
+            - --tc-image
+            - ghcr.io/alexei-led/pumba-debian-nettools
+            - delay
+            - --time
+            - "3000"
+            - --jitter
+            - "30"
+            - --distribution
+            - normal
+          resources:
+            requests:
+              cpu: 10m
+              memory: 5M
+            limits:
+              cpu: 100m
+              memory: 20M
+          volumeMounts:
+            - name: dockersocket
+              mountPath: /var/run/docker.sock
+      volumes:
+        - hostPath:
+            path: /var/run/docker.sock
+          name: dockersocket
+```
+
+### Self-Protection
+
+Add the label `com.gaiaadm.pumba: "true"` to the Pumba Pod to prevent it from killing itself.
+
+### Stress Testing on Kubernetes
+
+Pumba automatically resolves the target container's cgroup path via the Docker API, so stress testing works on Kubernetes without manual cgroup configuration. The stress-ng sidecar is placed under the correct Kubernetes pod cgroup hierarchy (e.g., `/kubepods/burstable/pod<uid>/...`).
+
+No `SYS_ADMIN` capability is required.
+
+```yaml
+- image: ghcr.io/alexei-led/pumba
+  name: pumba-stress
+  args:
+    - --log-level
+    - debug
+    - --label
+    - io.kubernetes.pod.name=test-stress
+    - --interval
+    - 2m
+    - stress
+    - --duration
+    - 1m
+```
+
+See `deploy/pumba_kube_stress.yml` for a complete example. For details on cgroup placement modes, see [Stress Testing](stress-testing.md#kubernetes-cgroup-path-resolution).
+
+### Containerd Runtime on Kubernetes
+
+Modern Kubernetes clusters use containerd as the container runtime (Docker shim was removed in Kubernetes 1.24+). Pumba can target containerd directly:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: pumba-containerd
+  namespace: pumba
+spec:
+  selector:
+    matchLabels:
+      app: pumba
+  template:
+    metadata:
+      labels:
+        app: pumba
+    spec:
+      hostPID: true # needed for sidecar network namespace sharing
+      containers:
+        - name: pumba
+          image: ghcr.io/alexei-led/pumba
+          args:
+            - --runtime
+            - containerd
+            - --containerd-socket
+            - /run/containerd/containerd.sock
+            - --containerd-namespace
+            - k8s.io
+            - --log-level
+            - info
+            - --label
+            - io.kubernetes.pod.name=target-pod
+            - --interval
+            - 30s
+            - netem
+            - --duration
+            - 20s
+            - --tc-image
+            - ghcr.io/alexei-led/pumba-alpine-nettools:latest
+            - delay
+            - --time
+            - "3000"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: containerd-socket
+              mountPath: /run/containerd/containerd.sock
+      volumes:
+        - name: containerd-socket
+          hostPath:
+            path: /run/containerd/containerd.sock
+```
+
+**Key differences from Docker mode:**
+
+- Mount the **containerd socket** instead of the Docker socket
+- Use `--containerd-namespace k8s.io` (Kubernetes containers live in this namespace)
+- Use `--tc-image` for network chaos (sidecar approach — no tools needed in target image)
+- Container names are resolved from Kubernetes labels automatically (`namespace/pod/container`)
+
+### Podman Runtime (Linux host)
+
+On a Linux host running Podman with the rootful API socket, mount Podman's Docker-compat socket into the Pumba container and select `--runtime podman`. This is the equivalent of the Docker DaemonSet, except the socket URI differs.
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: pumba-podman
+  namespace: pumba
+spec:
+  selector:
+    matchLabels:
+      app: pumba
+  template:
+    metadata:
+      labels:
+        app: pumba
+    spec:
+      hostPID: true # needed for cgroup path resolution via /proc/<pid>/cgroup
+      containers:
+        - name: pumba
+          image: ghcr.io/alexei-led/pumba
+          args:
+            - --runtime
+            - podman
+            - --podman-socket
+            - unix:///run/podman/podman.sock
+            - --log-level
+            - info
+            - --interval
+            - 30s
+            - netem
+            - --duration
+            - 20s
+            - --tc-image
+            - ghcr.io/alexei-led/pumba-alpine-nettools:latest
+            - delay
+            - --time
+            - "3000"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: podman-socket
+              mountPath: /run/podman/podman.sock
+            - name: proc
+              mountPath: /proc
+      volumes:
+        - name: podman-socket
+          hostPath:
+            path: /run/podman/podman.sock
+        - name: proc
+          hostPath:
+            path: /proc
+```
+
+**Key requirements for Podman mode:**
+
+- Podman must run **rootful** on the host (`systemctl enable --now podman.socket`) — rootless is rejected for `netem`, `iptables`, and `stress`.
+- Mount `/proc` from the host so pumba can read `/proc/<pid>/cgroup` with the host's cgroupns view (Podman's default `cgroupns=private` hides ancestry from inside containers).
+- Mount the rootful `/run/podman/podman.sock` (not `$XDG_RUNTIME_DIR/podman/podman.sock`).
+- `hostPID: true` lets pumba see target PIDs for cgroup resolution.
+- The Pumba CLI and the target containers must share the same kernel — on macOS that means running pumba **inside** the `podman machine` VM, not on the host.
+
+### Limitations
+
+- `pumba netem` commands do not work on minikube because the `sch_netem` kernel module is missing in the minikube VM
+
+## Running on OpenShift
+
+Pumba can be deployed on OpenShift using a DaemonSet similar to Kubernetes. See `deploy/pumba_openshift.yml` for an example manifest.
+
+```sh
+oc create -f deploy/pumba_openshift.yml
+```
+
+The OpenShift manifest uses `runAsUser: 0` to ensure Pumba has the necessary permissions to interact with the Docker socket.
+
+## Related Documentation
+
+- [User Guide](guide.md) — Container chaos commands and targeting
+- [Network Chaos](network-chaos.md) — netem and iptables commands
+- [Stress Testing](stress-testing.md) — CPU, memory, and I/O stress tests

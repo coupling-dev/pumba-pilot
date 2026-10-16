@@ -1,0 +1,137 @@
+package netem
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/alexei-led/pumba/pkg/chaos"
+	"github.com/alexei-led/pumba/pkg/container"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+func TestParseRate(t *testing.T) {
+	tests := []struct {
+		rate    string
+		want    string
+		wantErr bool
+	}{
+		{"100mbit", "100mbit", false},
+		{"1gbit", "1gbit", false},
+		{"10kbit", "10kbit", false},
+		{"100", "", true},
+		{"bit", "", true},
+		{"100kb", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.rate, func(t *testing.T) {
+			got, err := parseRate(tt.rate)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestRateArgsPreservesCellSizePositionWithoutPacketOverhead(t *testing.T) {
+	assert.Equal(t, []string{"rate", "100kbit", "0", "53"}, rateArgs("100kbit", 0, 53, 0))
+}
+
+func TestNewRateCommandRejectsCellOverheadWithoutCellSize(t *testing.T) {
+	cmd, err := NewRateCommand(nil, &chaos.GlobalParams{}, &container.NetemRequest{}, 0, "100kbit", 0, 0, 5)
+
+	require.ErrorContains(t, err, "cell overhead requires a positive cell size")
+	assert.Nil(t, cmd)
+}
+
+func TestRateCommand_Run_NoContainers(t *testing.T) {
+	mockClient := container.NewMockClient(t)
+	gparams := &chaos.GlobalParams{Names: []string{"nonexistent"}}
+	nparams := &container.NetemRequest{Interface: "eth0", Duration: time.Second}
+
+	mockClient.EXPECT().ListContainers(mock.Anything,
+		mock.AnythingOfType("container.FilterFunc"),
+		container.ListOpts{All: false, Labels: nil}).
+		Return([]*container.Container{}, nil)
+
+	cmd, err := NewRateCommand(mockClient, gparams, nparams, 0, "100mbit", 0, 0, 0)
+	require.NoError(t, err)
+
+	err = cmd.Run(context.Background(), false)
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestRateCommand_Run_WithRandom(t *testing.T) {
+	mockClient := container.NewMockClient(t)
+	c1 := &container.Container{ContainerID: "id1", ContainerName: "c1"}
+	c2 := &container.Container{ContainerID: "id2", ContainerName: "c2"}
+
+	gparams := &chaos.GlobalParams{Names: []string{"c1", "c2"}, DryRun: true}
+	nparams := &container.NetemRequest{
+		Interface: "eth0",
+		Duration:  100 * time.Millisecond,
+		Sidecar:   container.SidecarSpec{Image: "tc"},
+		DryRun:    true,
+	}
+
+	mockClient.EXPECT().ListContainers(mock.Anything,
+		mock.AnythingOfType("container.FilterFunc"),
+		container.ListOpts{All: false, Labels: nil}).
+		Return([]*container.Container{c1, c2}, nil)
+
+	mockClient.EXPECT().NetemContainer(mock.Anything, mock.AnythingOfType("*container.NetemRequest")).Return(nil).Once()
+	mockClient.EXPECT().StopNetemContainer(mock.Anything, mock.AnythingOfType("*container.NetemRequest")).Return(nil).Once()
+
+	cmd, err := NewRateCommand(mockClient, gparams, nparams, 0, "100mbit", 0, 0, 0)
+	require.NoError(t, err)
+
+	err = cmd.Run(context.Background(), true)
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestRateCommand_Run_DryRun(t *testing.T) {
+	mockClient := container.NewMockClient(t)
+	target := &container.Container{
+		ContainerID:   "abc123",
+		ContainerName: "target",
+		Labels:        map[string]string{},
+		Networks:      map[string]container.NetworkLink{},
+	}
+	gparams := &chaos.GlobalParams{Names: []string{"target"}, DryRun: true}
+	nparams := &container.NetemRequest{
+		Interface: "eth0",
+		Duration:  100 * time.Millisecond,
+		Sidecar:   container.SidecarSpec{Image: "tc-image"},
+		DryRun:    true,
+	}
+
+	mockClient.EXPECT().ListContainers(mock.Anything,
+		mock.AnythingOfType("container.FilterFunc"),
+		container.ListOpts{All: false, Labels: nil}).
+		Return([]*container.Container{target}, nil)
+
+	expectedReq := &container.NetemRequest{
+		Container: target,
+		Interface: "eth0",
+		Command:   []string{"rate", "100mbit", "10", "20", "30"},
+		Duration:  100 * time.Millisecond,
+		Sidecar:   container.SidecarSpec{Image: "tc-image"},
+		DryRun:    true,
+	}
+	mockClient.EXPECT().NetemContainer(mock.Anything, expectedReq).Return(nil)
+	mockClient.EXPECT().StopNetemContainer(mock.Anything, expectedReq).Return(nil)
+
+	cmd, err := NewRateCommand(mockClient, gparams, nparams, 0, "100mbit", 10, 20, 30)
+	require.NoError(t, err)
+
+	err = cmd.Run(context.Background(), false)
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}

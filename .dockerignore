@@ -1,0 +1,36 @@
+# Build artifacts
+.bin/
+vendor/
+
+# Test and coverage
+.test/
+.cover/
+coverage*.out
+
+# Version control
+.git/
+.gitignore
+
+# IDE and editor
+.idea/
+.vscode/
+
+# Environment and config
+.env
+.envrc
+
+# CI/CD and deployment (not needed in image)
+.github/
+deploy/
+
+# Documentation and examples (not needed in image)
+*.md
+docs/
+examples/
+
+# AI tools
+.aider*
+.claude/
+
+# Dockerfile itself
+docker/Dockerfile

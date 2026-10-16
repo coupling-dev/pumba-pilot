@@ -1,0 +1,34 @@
+# Build artifacts
+.bin/
+vendor/
+
+# Test and coverage
+.test/
+.cover/
+coverage*.out
+
+# IDE and editor
+.idea/
+.vscode/
+**/.DS_Store
+
+# Environment and local config
+.env
+.envrc
+.in
+
+# AI tools
+.aider*
+.archfit-cache/
+.ralphex/
+.claude/
+.codegraph/
+.pi/
+progress*.txt
+
+# Git time tracking
+.gtm/
+
+# Debug binaries
+**/debug
+**/debug.test
