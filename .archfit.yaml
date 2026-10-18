@@ -45,21 +45,33 @@ languages:
 
 modules:
   cmd:
+    # CLI wiring; 20 commits in 12 months.
+    volatility: medium
     paths:
       - "cmd/**"
   pkg_chaos:
+    # chaos actions, the product core; 46 commits in 12 months.
+    volatility: high
     paths:
       - "pkg/chaos/**"
   pkg_container:
+    # container model and client interfaces; 21 commits in 12 months.
+    volatility: medium
     paths:
       - "pkg/container/**"
   pkg_runtime:
+    # Docker, containerd and Podman adapters follow upstream APIs; 52 commits in 12 months.
+    volatility: high
     paths:
       - "pkg/runtime/**"
   pkg_tc:
+    # tc command builder; 1 commit in 12 months.
+    volatility: low
     paths:
       - "pkg/tc/**"
   pkg_util:
+    # small parsing helpers; 4 commits in 12 months.
+    volatility: low
     paths:
       - "pkg/util/**"
 
