@@ -223,9 +223,9 @@
     }
   },
   "state": {
-    "config_hash": "c629cc873642931f516896d5164b468ffaceebda210176297d2b547b9caf8e72",
+    "config_hash": "fe46f4cf51bfe94679e3fe04b5b0eeb6509b1135754d47ef0c25a9945abf866e",
     "classification_hash": "1664f273bfac18369e4c40802f1e17408ba2b35c438f04179ab7b87a76a909a2",
-    "model_hash": "c403e6df638986c189ed750e66fefc71c60e388c8767c7ce7737a7b3fdbb9097",
+    "model_hash": "a9e3104669b431920fbccc616ece2ae9c1071a4d069bd84d9cad9dd168829f35",
     "labels_hash": "",
     "rubric_version": "bc_score.v7",
     "measurement_profile": {
