@@ -480,7 +480,7 @@
         "metrics": [
           {
             "name": "commits_scanned",
-            "value": 5,
+            "value": 7,
             "unit": "count"
           },
           {
